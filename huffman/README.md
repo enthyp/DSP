@@ -1,4 +1,4 @@
-### Huffman encoder/decoder
+# Huffman encoder/decoder
 Very basic implementation just to get the idea. 
   * works for first 5 paragraphs of _lorem ipsum_
   * no error handling
