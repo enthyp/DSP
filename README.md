@@ -5,4 +5,4 @@ Most of this is based on a Polish DSP textbook that I've got.
 ### Contents
 Just some stuff.
  * huffman
-  * basic-basic implementation of Huffman encoder and decoder based on a brief description
+   * basic-basic implementation of Huffman encoder and decoder based on a brief description
