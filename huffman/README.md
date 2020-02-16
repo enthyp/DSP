@@ -7,9 +7,9 @@ Very basic implementation just to get the idea.
 Working principle:
   * `utils.py` provides functions one can use to:
     * get word occurrence counts for a string (`symbol_freq`)
-    * build a binary tree based on these counts (`build_tree`)  
-    * build Huffman codewords based on that tree,
-      using simple min-heap implementation (`build_codewords`)
+    * build a binary tree based on these counts,
+      using simple min-heap implementation (`build_tree`)  
+    * build Huffman codewords based on that tree (`build_codewords`)
     * save codewords to file and load them from file (`dump_cw`, `load_cw`)
   * `Encoder` class is dead simple, just use the codeword table
   * `Decoder` class builds a trie based on codewords
