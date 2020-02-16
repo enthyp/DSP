@@ -2,7 +2,7 @@ from collections import defaultdict
 from graphviz import Graph
 from uuid import uuid4
 
-__all__ = ['symbol_freq', 'build_tree', 'build_codewords', 'get_codewords', 'dump']
+__all__ = ['symbol_freq', 'build_tree', 'build_codewords', 'get_cw', 'dump_cw']
 
 
 class Node:
@@ -150,7 +150,7 @@ def build_codewords(root):
     return codewords
 
 
-def dump(codewords, filepath):  #
+def dump_cw(codewords, filepath):  #
     with open(filepath, 'w') as codes_file:
         sc_pairs = [(s, c) for s, c in codewords.items()]
         sc_pairs.sort(key=lambda sc: len(sc[1]))  # by codeword length
@@ -159,7 +159,7 @@ def dump(codewords, filepath):  #
         codes_file.write(maps_b)
 
 
-def get_codewords(filepath):
+def get_cw(filepath):
     with open(filepath, 'r', newline='\r\n') as codes_file:
         sc_lines = codes_file.read().split('\r\n')
         sc_lines = map(lambda sc: sc.split('\r'), sc_lines)

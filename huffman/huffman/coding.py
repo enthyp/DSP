@@ -1,9 +1,9 @@
-from .utils import get_codewords
+from .utils import get_cw
 
 
 class Encoder:
     def __init__(self, file_path):
-        self.codewords = get_codewords(file_path)
+        self.codewords = get_cw(file_path)
 
     def encode(self, text):
         codes = []
@@ -62,7 +62,7 @@ class Trie:
 
 class Decoder:
     def __init__(self, file_path):
-        self.codewords = get_codewords(file_path)
+        self.codewords = get_cw(file_path)
         self.search = Trie()
         self._build_search()
 

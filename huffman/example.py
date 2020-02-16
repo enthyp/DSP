@@ -21,7 +21,7 @@ def encode_decode():
     text = sample()
     tree = get_tree(text)
     codewords = build_codewords(tree)
-    dump(codewords, './codes')
+    dump_cw(codewords, './codes')
 
     encoder = Encoder('./codes')
     decoder = Decoder('./codes')
