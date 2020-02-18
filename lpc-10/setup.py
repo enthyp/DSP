@@ -1,12 +1,18 @@
-from setuptools import setup
+from setuptools import Extension, setup
+from Cython.Build import cythonize
+
+extensions = [
+    Extension('lpc.coding', ['src/coding.pyx']),
+    Extension('lpc.functions', ['src/functions.pyx'])
+]
 
 setup(
     name='lpc',
-    packages=['lpc'],
-    package_dir={'': 'src'},
     install_requires=[
         'numpy',
         'scipy',
-        'sounddevice'
-    ]
+        'sounddevice',
+        'cython'
+    ],
+    ext_modules=cythonize(extensions)
 )
