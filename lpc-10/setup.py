@@ -2,8 +2,8 @@ from setuptools import Extension, setup
 from Cython.Build import cythonize
 
 extensions = [
-    Extension('lpc.coding', ['src/coding.pyx']),
-    Extension('lpc.functions', ['src/functions.pyx'])
+    Extension('lpc.coding', ['lpc/coding.pyx'], include_dirs=['lpc/']),
+    Extension('lpc.functions', ['lpc/functions.pyx'])
 ]
 
 setup(
@@ -14,5 +14,10 @@ setup(
         'sounddevice',
         'cython'
     ],
-    ext_modules=cythonize(extensions)
+    ext_modules=cythonize(extensions),
+    zip_safe=False,
+    package='lpc',
+    package_data={
+        'lpc/coding': ['lpc/functions.pxd'],
+    }
 )

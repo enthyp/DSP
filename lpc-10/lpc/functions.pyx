@@ -6,7 +6,7 @@ from libc.math cimport fabs
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef amdf(double[:] data, double[:] amdf_arr):
+cdef void amdf(double[:] data, double[:] amdf_arr):
     cdef int i, k
     cdef float acc
 
@@ -19,7 +19,7 @@ cpdef amdf(double[:] data, double[:] amdf_arr):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cpdef auto_corr(double[:] data, double[:] corr_arr):
+cdef void auto_corr(double[:] data, double[:] corr_arr):
     cdef int i, k
     cdef float acc
 
@@ -32,5 +32,5 @@ cpdef auto_corr(double[:] data, double[:] corr_arr):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-cdef cepstrum(double[:] data, double[:] cep_arr):
+cdef void cepstrum(double[:] data, double[:] cep_arr):
     pass

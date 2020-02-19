@@ -16,4 +16,4 @@ JUNK = "*.egg-info" "__pycache__" "*.c" "*.so" "build"
 
 .PHONY: clean
 clean:
-	$(foreach fd, $(JUNK), rm -r `find . -name $(fd)`;)
+	$(foreach fd, $(JUNK), rm -rf `find . -name $(fd)`;)
