@@ -34,6 +34,7 @@ cdef class Encoder:
     @cython.wraparound(False)
     cpdef encode(self, double[:] audio, double fs):
         cdef int i = 0, bt_min_s, bt_max_s, tmp
+        cdef double base_period
         cdef double[:] window_metrics
         cdef double[:, :] out_frames
 
@@ -47,22 +48,24 @@ cdef class Encoder:
         while i < audio.shape[0]:
             # Get base tone characteristic first.
             self.bt_fun(audio[i:i + self.w_len], window_metrics)
-            out_frames[i // self.w_step][0] = self.find_period(window_metrics, bt_min_s, bt_max_s, fs)
+            base_period = self.find_period(window_metrics[i: i + self.w_len], bt_min_s, bt_max_s, fs)
+            out_frames[i // self.w_step][0] = base_period
 
             i += self.w_step
-        return out_frames
+
+        return np.array(out_frames)
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cdef find_period(self, double[:] metric, int bt_min_s, int bt_max_s, double fs):
+    cdef double find_period(self, double[:] metric, int bt_min_s, int bt_max_s, double fs):
         cdef int i = 0, max_ind = bt_min_s
 
         for i in range(bt_min_s, bt_max_s):
             if metric[i] > metric[max_ind]:
                 max_ind = i
 
-        if metric[bt_min_s + max_ind] > 0.35 * metric[0]:
-            return (max_ind + bt_min_s) / fs
+        if metric[max_ind] > 0.35 * metric[0]:
+            return max_ind / fs
         else:
             return 0.0  # well, works most of the time...
 
