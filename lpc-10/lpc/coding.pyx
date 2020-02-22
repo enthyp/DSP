@@ -3,11 +3,13 @@ import numpy as np
 cimport numpy as np
 cimport scipy.linalg.cython_lapack as cl
 
+from libc.math cimport cos, pi
 from libc.stdlib cimport rand
 cdef extern from "stdlib.h":
     int RAND_MAX
 
 from .functions cimport auto_corr, amdf, cepstrum
+from .fir cimport WSFilter
 
 
 ctypedef void (*bt_function)(double[:] data, double[:] result)
@@ -20,43 +22,71 @@ bt_functions[2] = cepstrum
 
 cdef class Encoder:
     cdef int w_len, w_step, n_coef
-    cdef double bt_min_f, bt_max_f
+    cdef double bt_min_f, bt_max_f, fs
+    cdef double[:] window
+    cdef FIRFilter lp_filter
 
-    def __init__(self, int w_len, int w_step, int n_coef, double bt_min_f, double bt_max_f):
+    def __init__(self, int w_len, int w_step, int n_coef, double bt_min_f, double bt_max_f, double fs):
         self.w_len = w_len
         self.w_step = w_step
         self.n_coef = n_coef
         self.bt_min_f = bt_min_f
         self.bt_max_f = bt_max_f
+        self.fs = fs
+        self.lp_filter = WSFilter(255, 1, 900 / fs)
+        self.window = np.empty((w_len,), dtype=np.double)
+        self.prepare_window()
+
+    cdef prepare_window(self):
+        # Hamming window.
+        cdef int i
+        cdef double arg
+
+        for i in range(self.w_len):
+            arg = (i - self.w_len / 2) / (self.w_len / 2)
+            self.window[i] = 0.54 + 0.46 * cos(pi * arg)
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cpdef encode(self, double[:] audio, double fs):
+    cpdef encode(self, double[:] audio):
         cdef int j, i = 0, bt_min_s, bt_max_s, tmp
         cdef double base_period
         cdef int[:] i_piv
-        cdef double[:] coef, corr
+        cdef double[:] preemp, filtered, coef, corr
         cdef double[:, :] r_matrix, out_frames
 
-        bt_max_s = <int>(fs // self.bt_min_f)
-        bt_min_s = <int>(fs // self.bt_max_f)
+        bt_max_s = <int>(self.fs // self.bt_min_f)
+        bt_min_s = <int>(self.fs // self.bt_max_f)
 
-        r_matrix = np.empty((self.n_coef, self.n_coef), dtype=np.double)
+        # Results.
         out_frames = np.empty((audio.shape[0] // self.w_step, 2 + self.n_coef), dtype=np.double)
+
+        # Steps.
+        preemp = np.empty((self.w_len,), dtype=np.double)
+        filtered = np.empty((self.w_len,), dtype=np.double)
         corr = np.empty((self.w_len,), dtype=np.double)
         coef = np.empty((self.n_coef + 1,), dtype=np.double)
+
+        # Temporary.
+        r_matrix = np.empty((self.n_coef, self.n_coef), dtype=np.double)
         i_piv = np.empty((self.n_coef,), dtype=np.int32)
 
         while i < audio.shape[0]:
-            # TODO:
-            #  - preemphasis
-            #  - Hamming
-            #  - low-pass 900Hz for base tone
-            #  - thresholding!
+            # Preemphasis.
+            self.preemphasis(audio, preemp)
+
+            # Hamming multiplication.
+            for j in range(self.w_len):
+                preemp[j] *= self.window[j]
 
             # Get base tone characteristic first.
+            # Low-pass.
+            self.lp_filter.run(preemp, filtered, self.w_len)
+
+            # TODO: thresholds?
+            # Find base period.
             auto_corr(audio[i:i + self.w_len], corr)
-            base_period = self.find_period(corr[i: i + self.w_len], bt_min_s, bt_max_s, fs)
+            base_period = self.find_period(corr[i: i + self.w_len], bt_min_s, bt_max_s)
             out_frames[i // self.w_step][0] = base_period
 
             # Next, estimate vocal tract filter params.
@@ -68,6 +98,15 @@ cdef class Encoder:
             i += self.w_step
 
         return np.array(out_frames)
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cdef preemphasis(self, double[:] signal, double[:] preemp_signal):
+        cdef int i
+
+        preemp_signal[0] = signal[0]
+        for i in range(1, self.w_len):
+            preemp_signal[i] = signal[i] - 0.9375 * signal[i - 1]
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
@@ -95,7 +134,7 @@ cdef class Encoder:
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cdef double find_period(self, double[:] corr, int bt_min_s, int bt_max_s, double fs):
+    cdef double find_period(self, double[:] corr, int bt_min_s, int bt_max_s):
         cdef int i = 0, max_ind = bt_min_s
 
         for i in range(bt_min_s, bt_max_s):
@@ -103,7 +142,7 @@ cdef class Encoder:
                 max_ind = i
 
         if corr[max_ind] > 0.35 * corr[0]:
-            return max_ind / fs
+            return max_ind / self.fs
         else:
             return 0.0  # well, works most of the time...
 
@@ -133,7 +172,7 @@ cdef class Decoder:
                         buffer[k] = tmp
                         tmp = tmp2
 
-                    buffer[0] = 2 * (rand() / double(RAND_MAX) - 0.5)
+                    buffer[0] = 2 * (rand() / <double>RAND_MAX - 0.5)
 
                     acc = 0
                     for k in range(self.n_coef):
