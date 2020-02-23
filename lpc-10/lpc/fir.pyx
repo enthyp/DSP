@@ -3,17 +3,13 @@ cimport numpy as np
 import numpy as np
 from libc.math cimport cos, pi, sin
 
+__all__ = ['FIRFilter', 'LPFilter', 'PreempFilter']
+
 
 cdef class FIRFilter:
     """Generic base class for finite impulse response filters."""
 
-    cdef int kernel_length
-    cdef double [::1] buffer, kernel
-
-    def __init__(self, int kernel_length):
-        self.kernel_length = kernel_length
-        self.buffer = np.zeros((kernel_length,), dtype=np.double)
-        self.kernel = np.zeros((kernel_length,), dtype=np.double)
+    def __init__(self, int kernel_length, **args):
         self._prepare_kernel()
 
     def _prepare_kernel(self):
@@ -22,7 +18,7 @@ cdef class FIRFilter:
     @cython.initializedcheck(False)
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cpdef run(self, double[::1] samples, double[::1] filtered, int samples_len):
+    cpdef run(self, double[:] samples, double[:] filtered, int samples_len):
         cdef int i, j
         cdef double acc, tmp, tmp2
 
@@ -39,7 +35,7 @@ cdef class FIRFilter:
             # Convolve.
             acc = 0
             for j in range(self.kernel_length):
-                acc += samples[j] * self.kernel[j]
+                acc += self.buffer[j] * self.kernel[j]
 
             filtered[i] = acc
 
@@ -47,13 +43,16 @@ cdef class FIRFilter:
 cdef class LPFilter(FIRFilter):
     """Windowed-sinc low-pass filter."""
 
-    cdef double fc
+    def __cinit__(self, int kernel_length, double fc):
+        self.kernel_length = kernel_length
+        self.buffer = np.zeros((kernel_length,), dtype=np.double)
+        self.kernel = np.zeros((kernel_length,), dtype=np.double)
+        self.fc = fc
 
     def __init__(self, int kernel_length, double fc):
-        self.fc = fc
         super().__init__(kernel_length)
 
-    cdef _prepare_kernel(self):
+    def _prepare_kernel(self):
         cdef int i
         cdef double s
 
@@ -74,10 +73,12 @@ cdef class LPFilter(FIRFilter):
 cdef class PreempFilter(FIRFilter):
     """Simple pre-emphasis filter."""
 
-    def __init__(self):
-        super().__init__(2)
+    def __cinit__(self):
+        self.kernel_length = 2
+        self.buffer = np.zeros((self.kernel_length,), dtype=np.double)
+        self.kernel = np.zeros((self.kernel_length,), dtype=np.double)
 
-    cdef _prepare_kernel(self):
+    def _prepare_kernel(self):
         cdef int i
         cdef double s
 

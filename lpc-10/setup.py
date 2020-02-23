@@ -15,6 +15,10 @@ setup(
         'sounddevice',
         'cython'
     ],
-    ext_modules=cythonize(extensions, gdb_debug=True),
+    ext_modules=cythonize(
+        extensions,
+        compiler_directives={'language_level': "3"},
+        gdb_debug=True
+    ),
     zip_safe=False,
 )

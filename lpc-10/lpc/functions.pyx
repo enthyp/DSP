@@ -8,7 +8,7 @@ from libc.math cimport fabs
 @cython.wraparound(False)
 cdef void amdf(double[:] data, double[:] amdf_arr, int data_len):
     cdef int i, k
-    cdef float acc
+    cdef double acc
 
     for k in range(data.shape[0]):
         acc = 0
@@ -21,13 +21,13 @@ cdef void amdf(double[:] data, double[:] amdf_arr, int data_len):
 @cython.wraparound(False)
 cdef void auto_corr(double[:] data, double[:] corr_arr, int data_len):
     cdef int i, k
-    cdef float acc
+    cdef double acc
 
-    for k in range(data_len):
+    for i in range(data_len):
         acc = 0
-        for i in range(data_len - k):
-            acc += data[i] * data[i + k]
-        corr_arr[k] = acc
+        for k in range(data_len - i):
+            acc += data[k] * data[k + i]
+        corr_arr[i] = acc
 
 
 @cython.boundscheck(False)
