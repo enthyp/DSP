@@ -8,11 +8,11 @@ from libc.stdlib cimport rand
 cdef extern from "stdlib.h":
     int RAND_MAX
 
-from .functions cimport auto_corr, amdf, cepstrum
-from .fir cimport WSFilter
+from lpc.functions cimport auto_corr, amdf, cepstrum
+from lpc.fir cimport LPFilter, PreempFilter
 
 
-ctypedef void (*bt_function)(double[:] data, double[:] result)
+ctypedef void (*bt_function)(double[:] data, double[:] result, int data_len)
 
 cdef bt_function bt_functions[3]
 bt_functions[0] = auto_corr
@@ -24,7 +24,7 @@ cdef class Encoder:
     cdef int w_len, w_step, n_coef
     cdef double bt_min_f, bt_max_f, fs
     cdef double[:] window
-    cdef FIRFilter lp_filter
+    cdef LPFilter lp_filter
 
     def __init__(self, int w_len, int w_step, int n_coef, double bt_min_f, double bt_max_f, double fs):
         self.w_len = w_len
@@ -33,7 +33,8 @@ cdef class Encoder:
         self.bt_min_f = bt_min_f
         self.bt_max_f = bt_max_f
         self.fs = fs
-        self.lp_filter = WSFilter(255, 1, 900 / fs)
+        self.preemp = PreempFilter(fs)
+        self.lp_filter = LPFilter(255, 1, 900 / fs)
         self.window = np.empty((w_len,), dtype=np.double)
         self.prepare_window()
 
@@ -49,7 +50,7 @@ cdef class Encoder:
     @cython.boundscheck(False)
     @cython.wraparound(False)
     cpdef encode(self, double[:] audio):
-        cdef int j, i = 0, bt_min_s, bt_max_s, tmp
+        cdef int i = 0, j, frame_no, bt_min_s, bt_max_s, tmp
         cdef double base_period
         cdef int[:] i_piv
         cdef double[:] preemp, filtered, coef, corr
@@ -59,6 +60,7 @@ cdef class Encoder:
         bt_min_s = <int>(self.fs // self.bt_max_f)
 
         # Results.
+        # layout: [T, a_1, a_2, ..., a_{n_coef}, G]
         out_frames = np.empty((audio.shape[0] // self.w_step, 2 + self.n_coef), dtype=np.double)
 
         # Steps.
@@ -71,9 +73,11 @@ cdef class Encoder:
         r_matrix = np.empty((self.n_coef, self.n_coef), dtype=np.double)
         i_piv = np.empty((self.n_coef,), dtype=np.int32)
 
-        while i < audio.shape[0]:
+        while i + self.w_len < audio.shape[0]:
+            frame_no = <int>(i // self.w_step)
+
             # Preemphasis.
-            self.preemphasis(audio, preemp)
+            self.preemp.run(audio, preemp, self.w_len)
 
             # Hamming multiplication.
             for j in range(self.w_len):
@@ -85,32 +89,23 @@ cdef class Encoder:
 
             # TODO: thresholds?
             # Find base period.
-            auto_corr(audio[i:i + self.w_len], corr)
+            auto_corr(audio[i:], corr, self.w_len)
             base_period = self.find_period(corr[i: i + self.w_len], bt_min_s, bt_max_s)
-            out_frames[i // self.w_step][0] = base_period
+            out_frames[frame_no][0] = base_period
 
             # Next, estimate vocal tract filter params.
             tmp = self.n_coef
             self.find_coef(corr, coef, r_matrix, i_piv, tmp)
 
             for j in range(self.n_coef + 1):
-                out_frames[i // self.w_step][j + 1] = coef[j]
+                out_frames[frame_no][j + 1] = coef[j]
             i += self.w_step
 
         return np.array(out_frames)
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cdef preemphasis(self, double[:] signal, double[:] preemp_signal):
-        cdef int i
-
-        preemp_signal[0] = signal[0]
-        for i in range(1, self.w_len):
-            preemp_signal[i] = signal[i] - 0.9375 * signal[i - 1]
-
-    @cython.boundscheck(False)
-    @cython.wraparound(False)
-    cdef double find_coef(self, double[:] corr, double[:] coef, double[:, :] r_matrix, int[:] dump, int n_coef):
+    cdef double find_coef(self, double[:] corr, double[:] coef, double[:, :] r_matrix, int[:] i_piv, int n_coef):
         cdef int i, j, n=n_coef, n_rhs=1, info
 
         # Prepare RHS (tb solution).
@@ -125,7 +120,7 @@ cdef class Encoder:
                 r_matrix[i, i - j] = corr[j]
 
         # Solve the system.
-        cl.dgesv(&n, &n_rhs, &r_matrix[0, 0], &n, &dump[0], &coef[0], &n, &info)
+        cl.dgesv(&n, &n_rhs, &r_matrix[0, 0], &n, &i_piv[0], &coef[0], &n, &info)
 
         # Solve for G.
         for i in range(1, n_coef + 1):
@@ -142,9 +137,9 @@ cdef class Encoder:
                 max_ind = i
 
         if corr[max_ind] > 0.35 * corr[0]:
-            return max_ind / self.fs
+            return <double>max_ind
         else:
-            return 0.0  # well, works most of the time...
+            return 0.0
 
 
 cdef class Decoder:
@@ -155,32 +150,43 @@ cdef class Decoder:
         self.n_coef = n_coef
 
     def decode(self, data):
-        cdef int i, j, k
-        cdef double rnd, acc = 0, tmp, tmp2
+        cdef int i, j, k, base_period_s
+        cdef double impulse, tmp, tmp2, acc, deemp = 0
         cdef double[:] buffer, out_samples
 
         buffer = np.zeros((self.n_coef,), dtype=np.double)
         out_samples = np.empty((data.shape[0] * self.w_step,), dtype=np.double)
 
         for i in range(data.shape[0]):
-            if data[i][0] < 1e-5:
-                 # Unvoiced.
-                for j in range(self.w_step):
-                    tmp = buffer[0]
-                    for k in range(1, self.n_coef):
-                        tmp2 = buffer[k]
-                        buffer[k] = tmp
-                        tmp = tmp2
+            base_period_s = <int>data[i][0]
 
-                    buffer[0] = 2 * (rand() / <double>RAND_MAX - 0.5)
+            for j in range(self.w_step):
+                # Get excitation value for voiced/unvoiced case.
+                if base_period_s == 0:
+                    # Unvoiced.
+                    impulse = 2 * (rand() / <double>RAND_MAX - 0.5)
+                else:
+                    if j % base_period_s == 0:
+                        impulse = 1.0
+                    else:
+                        impulse = 0.0
 
-                    acc = 0
-                    for k in range(self.n_coef):
-                        acc += buffer[i] * data[i][k]
+                # Calculate filter output.
+                acc = data[i][self.n_coef + 1] * impulse
+                for k in range(1, self.n_coef + 1):
+                    acc -= buffer[k - 1] * data[i][k]
 
-                    out_samples[i * self.w_step + j] = acc
-            else:
-                # Voiced.
-                pass
+                # Shift the buffer.
+                tmp = buffer[0]
+                for k in range(1, self.n_coef):
+                    tmp2 = buffer[k]
+                    buffer[k] = tmp
+                    tmp = tmp2
+
+                buffer[0] = acc
+
+                # De-emphasis.
+                deemp = 0.9375 * deemp + buffer[0]
+                out_samples[i * self.w_step + j] = deemp
 
         return np.array(out_samples)

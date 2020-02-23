@@ -4,21 +4,54 @@ import numpy as np
 from libc.math cimport cos, pi, sin
 
 
-cdef class LPFilter:
-    """Windowed-sinc low-pass filter.."""
-    
+cdef class FIRFilter:
+    """Generic base class for finite impulse response filters."""
+
     cdef int kernel_length
-    cdef double fc
     cdef double [::1] buffer, kernel
+
+    def __init__(self, int kernel_length):
+        self.kernel_length = kernel_length
+        self.buffer = np.zeros((kernel_length,), dtype=np.double)
+        self.kernel = np.zeros((kernel_length,), dtype=np.double)
+        self._prepare_kernel()
+
+    def _prepare_kernel(self):
+        raise NotImplementedError
+
+    @cython.initializedcheck(False)
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    cpdef run(self, double[::1] samples, double[::1] filtered, int samples_len):
+        cdef int i, j
+        cdef double acc, tmp, tmp2
+
+        for i in range(samples_len):
+            # Shift the buffer.  # TODO: use circular buffer.
+            tmp = self.buffer[0]
+            self.buffer[0] = samples[i]
+
+            for j in range(1, self.kernel_length):
+                tmp2 = self.buffer[j]
+                self.buffer[j] = tmp
+                tmp = tmp2
+
+            # Convolve.
+            acc = 0
+            for j in range(self.kernel_length):
+                acc += samples[j] * self.kernel[j]
+
+            filtered[i] = acc
+
+
+cdef class LPFilter(FIRFilter):
+    """Windowed-sinc low-pass filter."""
+
+    cdef double fc
 
     def __init__(self, int kernel_length, double fc):
         self.fc = fc
-        self.buffer = np.zeros((kernel_length,), dtype=np.double)
-        self.kernel_length = kernel_length
-        self.kernel = np.zeros((kernel_length,), dtype=np.double)
-
-        self._prepare_kernel()
-
+        super().__init__(kernel_length)
 
     cdef _prepare_kernel(self):
         cdef int i
@@ -37,24 +70,16 @@ cdef class LPFilter:
         for i in range(self.kernel_length):
             self.kernel[i] /= s
 
-    @cython.initializedcheck(False)
-    @cython.boundscheck(False)
-    @cython.wraparound(False)            
-    cpdef run(self, double[::1] samples, double[::1] filtered, int n):
-        cdef int i, j, offset
-        cdef double acc, tmp, tmp2
 
-        for i in range(n):
-            # Shift the buffer.
-            tmp = self.buffer[0]
-            for j in range(1, self.kernel_length):
-                tmp2 = self.buffer[j]
-                self.buffer[j] = tmp
-                tmp = tmp2
+cdef class PreempFilter(FIRFilter):
+    """Simple pre-emphasis filter."""
 
-            # Convolve.
-            acc = 0
-            for j in range(self.kernel_length):
-                acc += samples[j] * self.kernel[j]
+    def __init__(self):
+        super().__init__(2)
 
-            filtered[i] = acc
+    cdef _prepare_kernel(self):
+        cdef int i
+        cdef double s
+
+        self.kernel[0] = 1
+        self.kernel[1] = -0.9375

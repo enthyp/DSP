@@ -3,6 +3,7 @@ from Cython.Build import cythonize
 
 extensions = [
     Extension('lpc.coding', ['lpc/coding.pyx']),
+    Extension('lpc.fir', ['lpc/fir.pyx']),
     Extension('lpc.functions', ['lpc/functions.pyx'])
 ]
 
