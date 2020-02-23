@@ -4,7 +4,7 @@ cimport numpy as np
 cimport scipy.linalg.cython_lapack as cl
 
 from libc.math cimport cos, pi
-from libc.stdlib cimport rand
+from libc.stdlib cimport rand, malloc, free
 cdef extern from "stdlib.h":
     int RAND_MAX
 
@@ -50,13 +50,18 @@ cdef class Encoder:
             arg = (i - self.w_len / 2) / (self.w_len / 2)
             self.window[i] = 0.54 + 0.46 * cos(pi * arg)
 
-    @cython.boundscheck(False)
+    # @cython.boundscheck(False)
     cpdef encode(self, double[:] audio):
         cdef int i = 0, j, frame_no, bt_min_s, bt_max_s, tmp
         cdef double base_period
         cdef int[:] i_piv
         cdef double[:] preemp, filtered, coef, corr
-        cdef double[:, :] r_matrix, out_frames, r_mat
+        cdef double[:, :] r_matrix, out_frames
+
+        cdef int l_work=-1, n=self.n_coef, n_rhs=1, info
+        cdef double wk_opt
+        cdef char* uplo = 'U'
+        cdef double *work_arr
 
         bt_max_s = <int>(self.fs // self.bt_min_f)
         bt_min_s = <int>(self.fs // self.bt_max_f)
@@ -78,6 +83,11 @@ cdef class Encoder:
         # Temporary.
         r_matrix = np.empty((self.n_coef, self.n_coef), dtype=np.double)
         i_piv = np.empty((self.n_coef,), dtype=np.int32)
+
+        # Alloc memory for LAPACK DSYSV routine o.O
+        cl.dsysv(uplo, &n, &n_rhs, &r_matrix[0, 0], &n, &i_piv[0], &coef[0], &n, &wk_opt, &l_work, &info)
+        l_work = <int>wk_opt
+        work_arr = <double *> malloc(l_work * sizeof(double))
 
         while i + self.w_len <= audio.shape[0]:
             frame_no = <int>(i // self.w_step)
@@ -102,21 +112,22 @@ cdef class Encoder:
             # Next, estimate vocal tract filter params.
             tmp = self.n_coef
             auto_corr(preemp, corr, self.w_len)
-            self.find_coef(corr, coef, r_matrix, i_piv, tmp)
+            self.find_coef(corr, coef, r_matrix, i_piv, tmp, l_work, work_arr)
 
             for j in range(self.n_coef + 1):
                 out_frames[frame_no][j + 1] = coef[j]
             i += self.w_step
 
+        free(work_arr)
         return np.array(out_frames)
 
-    @cython.boundscheck(False)
-    cdef find_coef(self, double[:] corr, double[:] coef, double[:, :] r_matrix, int[:] i_piv, int n_coef):
-        cdef int i, j, n=n_coef, n_rhs=1, l_work=-1, info
-        cdef double wk_opt
+    # @cython.boundscheck(False)
+    cdef find_coef(self, double[:] corr, double[:] coef, double[:, :] r_matrix, int[:] i_piv, int n_coef, int l_work, double* work_arr):
+        cdef int i, j, n=n_coef, n_rhs=1, info
+        cdef char* uplo = 'U'
 
         # Prepare RHS (tb solution).
-        for i in range(n):
+        for i in range(n_coef):
             coef[i] = -corr[i + 1]
 
         # Prepare linear system's matrix.
@@ -127,9 +138,8 @@ cdef class Encoder:
                 r_matrix[i, j] = corr[i - j]
 
         # Solve the system.
-        cl.dsysv('Lower', &n, &n_rhs, &r_matrix[0, 0], &n, &i_piv[0], &coef[0], &n, &wk_opt, &l_work, &info)
+        cl.dsysv(uplo, &n, &n_rhs, &r_matrix[0, 0], &n, &i_piv[0], &coef[0], &n, work_arr, &l_work, &info)
 
-        # Solve for G.
         coef[n_coef] = 0
         for i in range(1, n_coef + 1):
             coef[n_coef] += corr[i] * coef[i - 1]
@@ -176,6 +186,7 @@ cdef class Decoder:
                     # Unvoiced.
                     impulse = 2 * (rand() / <double>RAND_MAX - 0.5)
                 else:
+                    # Voiced.
                     if j % base_period_s == 0:
                         impulse = 1.0
                     else:
