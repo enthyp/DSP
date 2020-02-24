@@ -28,7 +28,7 @@ def plot_audio(data, t_samples=10000, f_step=500, f_min=0, f_max=4000, fs=44100)
     k_0, k_max = f_min * N / fs, f_max * N / fs  
     k_step = f_step * N / fs  
     
-    amp_freq_response = np.abs(fft.rfft(data))
+    amp_freq_response = np.abs(fft.rfft(data,n=10 * N))
     ax2.plot(amp_freq_response[:int(k_max)])
     ax2.set_title('Frequency domain')
     
