@@ -35,7 +35,7 @@ cdef class Encoder:
         self.bt_max_f = bt_max_f
         self.fs = fs
         self.preemp = PreempFilter(2)
-        self.lp_filter = LPFilter(255, 900 / fs)
+        self.lp_filter = LPFilter(127, 900 / fs)
         self.window = np.empty((w_len,), dtype=np.double)
 
     def __init__(self, int w_len, int w_step, int n_coef, double bt_min_f, double bt_max_f, double fs):
@@ -77,7 +77,6 @@ cdef class Encoder:
         preemp = np.empty((self.w_len,), dtype=np.double)
         filtered = np.empty((self.w_len,), dtype=np.double)
         corr = np.empty((self.w_len,), dtype=np.double)
-
         coef = np.empty((self.n_coef + 1,), dtype=np.double)
 
         # Temporary.
@@ -153,7 +152,7 @@ cdef class Encoder:
             if corr[i] > corr[max_ind]:
                 max_ind = i
 
-        if corr[max_ind] > 0.3 * corr[0]:
+        if corr[max_ind] > 0.35 * corr[0]:
             return <double>max_ind
         else:
             return 0.0

@@ -20,7 +20,7 @@ def plot(data, labels, size=(20, 10)):
         ax.set_title(label)
       
     
-def plot_audio(data, t_samples=10000, f_step=500, f_min=0, f_max=4000, fs=44100):
+def plot_audio(data, f_step=500, f_min=0, f_max=4000, fs=44100):
     fig, (ax1, ax2) = plt.subplots(nrows=2, ncols=1, figsize=(20, 10))
 
     # Find samples that determine frequency interval of interest.
@@ -37,5 +37,5 @@ def plot_audio(data, t_samples=10000, f_step=500, f_min=0, f_max=4000, fs=44100)
     ax2.set_xticks(xticks)
     ax2.set_xticklabels(xtick_labels)
     
-    ax1.plot(data[:t_samples])
+    ax1.plot(data)
     ax1.set_title('Time domain')
